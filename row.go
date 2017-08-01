@@ -22,6 +22,7 @@ type Row struct {
 	updateColumnLength int
 	pkColumns          []string
 	pkValues           []interface{}
+	rawPkValues        []interface{}
 	insertColumns      []string
 	updateColumns      []string
 	insertValues       []interface{}
@@ -63,7 +64,7 @@ func (row *Row) Init() {
 	// Primary keys
 	for _, pkKey := range pkKeys {
 		row.pkColumns = append(row.pkColumns, pkKey)
-		row.pkValues = append(row.pkValues, row.PK[pkKey])
+		row.appendValue("pk", row.PK[pkKey])
 		row.insertColumns = append(row.insertColumns, pkKey)
 		row.updateColumns = append(row.updateColumns, pkKey)
 		row.appendValue("insert", row.PK[pkKey])
@@ -188,14 +189,25 @@ func (row *Row) GetUpdatePlaceholders(driver string) []string {
 // GetWhere returns a where condition based on primary key with placeholders
 func (row *Row) GetWhere(driver string, i int) string {
 	wheres := make([]string, len(row.PK))
-	j := i
+	start, j := i, i
 	for _, c := range row.pkColumns {
-		if driver == postgresDriver {
-			wheres[i-j] = fmt.Sprintf("%s = $%d", c, i+1)
-		} else {
-			wheres[i-j] = fmt.Sprintf("%s = ?", c)
-		}
+		val := row.rawPkValues[i-start]
 		i++
+		switch v := val.(type) {
+		case string:
+			if strings.HasPrefix(v, "RAW=") {
+				wheres[i-1-start] = fmt.Sprintf("%s = %s", c, strings.TrimPrefix(v, "RAW="))
+
+				continue
+			}
+		}
+		if driver == postgresDriver {
+			wheres[i-1-start] = fmt.Sprintf("%s = $%d", c, j+1)
+			j++
+		} else {
+			wheres[i-1-start] = fmt.Sprintf("%s = ?", c)
+		}
+
 	}
 	return strings.Join(wheres, " AND ")
 }
@@ -213,6 +225,8 @@ func (row *Row) appendValue(queryType string, val interface{}) {
 			row.insertValues = append(row.insertValues, val)
 		case "update":
 			row.updateValues = append(row.updateValues, val)
+		case "pk":
+			row.pkValues = append(row.pkValues, val)
 		}
 	}
 	switch queryType {
@@ -220,5 +234,7 @@ func (row *Row) appendValue(queryType string, val interface{}) {
 		row.rawInsertValues = append(row.rawInsertValues, val)
 	case "update":
 		row.rawUpdateValues = append(row.rawUpdateValues, val)
+	case "pk":
+		row.rawPkValues = append(row.rawPkValues, val)
 	}
 }
