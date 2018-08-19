@@ -42,7 +42,7 @@ func Load(data []byte, db *sql.DB, driver string) error {
 			case len(s) > 2:
 				return fmt.Errorf("Table name wrong format in yaml")
 			case len(s) == 2:
-				q := fmt.Sprintf(`SET SEARCH_PATH TO %s`, s[0])
+				q := fmt.Sprintf(`SET LOCAL SEARCH_PATH TO %s`, s[0])
 				_, err := tx.Exec(q)
 				if err != nil {
 					tx.Rollback() // rollback the transaction
