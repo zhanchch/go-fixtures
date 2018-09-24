@@ -74,6 +74,20 @@ func (row *Row) Init() {
 	// Rest of the fields
 	for _, fieldKey := range fieldKeys {
 		sv, ok := row.Fields[fieldKey].(string)
+
+		if !ok {
+			//check if byte array
+			underlyingType, ok := row.Fields[fieldKey].([]interface {})
+			if ok {
+				byteArray := convertToByteArray(underlyingType)
+				row.insertColumns = append(row.insertColumns, fieldKey)
+				row.updateColumns = append(row.updateColumns, fieldKey)
+				row.appendValue("insert", byteArray)
+				row.appendValue("update", byteArray)
+				continue
+			}
+		}
+
 		if ok && sv == onInsertNow {
 			row.insertColumns = append(row.insertColumns, fieldKey)
 			row.appendValue("insert", time.Now())
@@ -237,4 +251,12 @@ func (row *Row) appendValue(queryType string, val interface{}) {
 	case "pk":
 		row.rawPkValues = append(row.rawPkValues, val)
 	}
+}
+
+func convertToByteArray(original []interface {}) []byte{
+	array := make([]byte, len(original))
+	for i, v := range original {
+		array[i] = byte(v.(int))
+	}
+	return array
 }
