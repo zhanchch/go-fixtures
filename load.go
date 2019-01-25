@@ -20,22 +20,36 @@ func NewFileError(filename string, cause error) error {
 }
 
 // Load processes a YAML fixture and inserts/updates the database accordingly
-func Load(data []byte, db *sql.DB, driver string) error {
+func Load(data []byte, db *sql.DB, driver string, oneTransactionPerRow ...bool) error {
 	// Unmarshal the YAML data into a []Row slice
 	var rows []Row
 	if err := yaml.Unmarshal(data, &rows); err != nil {
 		return err
 	}
 
-	// Begin a transaction
-	tx, err := db.Begin()
-	if err != nil {
-		return err
+	doOneTransactionPerRow := len(oneTransactionPerRow) > 0 && oneTransactionPerRow[0]
+
+	var tx *sql.Tx
+	if !doOneTransactionPerRow {
+		// Begin a transaction
+		var err error
+		tx, err = db.Begin()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Iterate over rows define in the fixture
 	for i, row := range rows {
-		// Load internat struct variables
+		if doOneTransactionPerRow {
+			var err error
+			tx, err = db.Begin()
+			if err != nil {
+				return err
+			}
+		}
+
+		// Load struct variables
 		row.Init()
 		s := strings.Split(row.Table, ".")
 		switch {
@@ -62,8 +76,7 @@ func Load(data []byte, db *sql.DB, driver string) error {
 			row.GetWhere(driver, 0),
 		)
 		var count int
-		err = tx.QueryRow(selectQuery, row.GetPKValues()...).Scan(&count)
-		if err != nil {
+		if err := tx.QueryRow(selectQuery, row.GetPKValues()...).Scan(&count); err != nil {
 			tx.Rollback() // rollback the transaction
 			return NewProcessingError(i+1, err)
 		}
@@ -110,12 +123,21 @@ func Load(data []byte, db *sql.DB, driver string) error {
 				}
 			}
 		}
+
+		if doOneTransactionPerRow {
+			// Commit the transaction
+			if err := tx.Commit(); err != nil {
+				tx.Rollback() // rollback the transaction
+				return err
+			}
+		}
 	}
 
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		tx.Rollback() // rollback the transaction
-		return err
+	if !doOneTransactionPerRow {
+		if err := tx.Commit(); err != nil {
+			tx.Rollback() // rollback the transaction
+			return err
+		}
 	}
 
 	return nil
